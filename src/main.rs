@@ -71,6 +71,7 @@ impl WorkerPool {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[schemars(inline)]
 struct FileRequest {
     #[schemars(description = "Local file path to read. Use a path returned by find_files, search_text, CodeGraph, or another repository tool when available.")]
     path: String,
@@ -86,9 +87,17 @@ struct ReadFilesRequest {
     files: Vec<FileRequest>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
-enum PathKind { Files, Directories, Both }
+#[schemars(inline)]
+enum PathKind {
+    #[serde(alias = "file")]
+    Files,
+    #[serde(alias = "directory")]
+    Directories,
+    #[default]
+    Both,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FindFilesRequest {
@@ -97,7 +106,8 @@ struct FindFilesRequest {
     #[schemars(description = "Glob or name pattern matched against paths under the search root, e.g. **/*.rs, src/**, or Cargo.toml. Omit to list all matching entries subject to kind/max_depth.")]
     pattern: Option<String>,
     #[schemars(description = "Return files, directories, or both; default both.")]
-    kind: Option<PathKind>,
+    #[serde(default)]
+    kind: PathKind,
     #[schemars(description = "Maximum traversal depth below path. Use 1 for a direct directory listing; omit for recursive search.")]
     max_depth: Option<usize>,
     #[schemars(description = "Maximum number of returned paths; default 1000. Use a smaller limit for broad recursive searches.")]
@@ -343,7 +353,7 @@ async fn walk_paths(root: &Path, max_depth: Option<usize>, include_hidden: bool,
 async fn find_files(allowed_dirs: &[PathBuf], request: FindFilesRequest) -> Result<String> {
     let root = canonical_root(allowed_dirs, request.path.as_deref()).await?;
     let glob = make_globset(request.pattern.as_deref())?;
-    let kind = request.kind.unwrap_or(PathKind::Both);
+    let kind = request.kind;
     let limit = request.limit.unwrap_or(1000);
     let mut entries = walk_paths(&root, request.max_depth, request.include_hidden.unwrap_or(false), glob.as_ref()).await?;
     entries.retain(|(_, is_dir)| match kind { PathKind::Files => !*is_dir, PathKind::Directories => *is_dir, PathKind::Both => true });
