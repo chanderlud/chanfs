@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release (for example, v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            binary: chanfs-mcp
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            archive: tar.gz
+            binary: chanfs-mcp
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+            binary: chanfs-mcp.exe
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            archive: zip
+            binary: chanfs-mcp.exe
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package and checksum (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          archive="chanfs-mcp-${{ matrix.target }}.tar.gz"
+          tar -czf "$archive" -C "target/${{ matrix.target }}/release" "${{ matrix.binary }}"
+          sha256sum "$archive" > "$archive.sha256"
+          {
+            echo "ARCHIVE=$archive"
+            echo "CHECKSUM=$archive.sha256"
+          } >> "$GITHUB_ENV"
+
+      - name: Package and checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "chanfs-mcp-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -Path "$archive.sha256" -NoNewline
+          "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CHECKSUM=$archive.sha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Attest packaged binary
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.ARCHIVE }}
+
+      - name: Attest checksum
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.CHECKSUM }}
+
+      - name: Upload packaged files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.CHECKSUM }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download packaged files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/chanfs-mcp-*.tar.gz
+            dist/chanfs-mcp-*.tar.gz.sha256
+            dist/chanfs-mcp-*.zip
+            dist/chanfs-mcp-*.zip.sha256
