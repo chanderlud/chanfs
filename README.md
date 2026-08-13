@@ -17,3 +17,11 @@ Example client config:
 ```json
 {"mcpServers":{"chanfs":{"command":"C:\\path\\to\\chanfs-mcp.exe","env":{"CHANFS_ALLOWED_DIRS":"C:\\Users\\chand\\RustroverProjects"}}}}
 ```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.chanfs]
+command = "C:\\path\\to\\chanfs-mcp.exe"
+env = { CHANFS_ALLOWED_DIRS = "C:\\Users\\chand\\RustroverProjects" }
+```
