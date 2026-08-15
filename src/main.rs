@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use rmcp::{
     ServerHandler, ServiceExt,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ContentBlock, ServerInfo},
+    model::{CallToolResult, ContentBlock, Implementation, ServerInfo},
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
@@ -233,6 +233,12 @@ fn cap_response(mut output: String) -> String {
 impl ServerHandler for ChanfsServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::default()
+            .with_server_info(
+                Implementation::new("chanfs", env!("CARGO_PKG_VERSION"))
+                    .with_title("chanfs")
+                    .with_description("Guarded filesystem reads for Model Context Protocol clients.")
+                    .with_website_url("https://github.com/chanderlud/chanfs"),
+            )
             .with_instructions("Use read_files for file reads instead of shell commands.")
     }
 }
